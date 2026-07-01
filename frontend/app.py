@@ -77,11 +77,84 @@ st.markdown(custom_css, unsafe_allow_html=True)
 st.markdown('<div class="gradient-text">⚡ PJME Probabilistic Load Forecasting</div>', unsafe_allow_html=True)
 st.markdown('<div class="gradient-subtitle">Enterprise-Grade Decoupled XGBoost Forecasting Portal</div>', unsafe_allow_html=True)
 
-# Basic Grid Layout for Dashboard Check
-col1, col2 = st.columns([2, 1])
+# --- DATA INGESTION ENGINE ---
+@st.cache_data
+def load_predictions():
+    # Attempt to locate the predictions CSV
+    paths_to_try = [
+        "test_with_predictions.csv",
+        "../test_with_predictions.csv",
+        "backend/test_with_predictions.csv",
+        r"C:\PROJECT\Probforecast\test_with_predictions.csv"
+    ]
+    data_path = None
+    for p in paths_to_try:
+        if os.path.exists(p):
+            data_path = p
+            break
+            
+    if data_path is None:
+        st.error("🚨 Predictions artifact `test_with_predictions.csv` not found. Please ensure the backend pipeline has run.")
+        return None
+        
+    df = pd.read_csv(data_path)
+    df['Datetime'] = pd.to_datetime(df['Datetime'])
+    df = df.sort_values('Datetime').reset_index(drop=True)
+    return df
 
-with col1:
-    st.markdown('<div class="glass-card"><h3>📈 Time-Series Forecast View</h3><p>Interactive forecast visualization will be loaded here.</p></div>', unsafe_allow_html=True)
+df_full = load_predictions()
 
-with col2:
-    st.markdown('<div class="glass-card"><h3>🎯 Operational Validation Metrics</h3><p>Calibration metrics and coverage statistics will be loaded here.</p></div>', unsafe_allow_html=True)
+if df_full is not None:
+    # --- SIDEBAR CONTROLS ---
+    st.sidebar.markdown("### 🛠️ Dashboard Controls")
+    
+    # Preset Range selector
+    preset = st.sidebar.selectbox(
+        "Select Time Preset",
+        options=["Last 7 Days", "Last 14 Days", "Last 30 Days", "Entire Test Period", "Custom Range"],
+        index=0
+    )
+    
+    max_date = df_full['Datetime'].max()
+    min_date = df_full['Datetime'].min()
+    
+    if preset == "Last 7 Days":
+        start_date = max_date - pd.Timedelta(days=7)
+        end_date = max_date
+    elif preset == "Last 14 Days":
+        start_date = max_date - pd.Timedelta(days=14)
+        end_date = max_date
+    elif preset == "Last 30 Days":
+        start_date = max_date - pd.Timedelta(days=30)
+        end_date = max_date
+    elif preset == "Entire Test Period":
+        start_date = min_date
+        end_date = max_date
+    else:  # Custom Range
+        col_start, col_end = st.sidebar.columns(2)
+        with col_start:
+            s_date = st.date_input("Start Date", min_value=min_date.date(), max_value=max_date.date(), value=(max_date - pd.Timedelta(days=7)).date())
+        with col_end:
+            e_date = st.date_input("End Date", min_value=min_date.date(), max_value=max_date.date(), value=max_date.date())
+        
+        # Convert date to datetime
+        start_date = pd.to_datetime(s_date)
+        end_date = pd.to_datetime(e_date) + pd.Timedelta(hours=23)  # Include the whole end day
+        
+    # Filter the dataframe
+    df_filtered = df_full[(df_full['Datetime'] >= start_date) & (df_full['Datetime'] <= end_date)].reset_index(drop=True)
+    
+    st.sidebar.markdown("---")
+    st.sidebar.markdown(f"**Data Status:** Active")
+    st.sidebar.markdown(f"**Filtered Hours:** `{len(df_filtered)}` / `{len(df_full)}` total")
+    st.sidebar.markdown(f"**Range start:** `{start_date.strftime('%Y-%m-%d %H:%M')}`")
+    st.sidebar.markdown(f"**Range end:** `{end_date.strftime('%Y-%m-%d %H:%M')}`")
+    
+    # Grid Layout for Dashboard Check
+    col1, col2 = st.columns([2, 1])
+
+    with col1:
+        st.markdown(f'<div class="glass-card"><h3>📈 Time-Series Forecast View ({preset})</h3><p>Filtered forecasting dataset with <b>{len(df_filtered)} records</b> loaded ready for visualization.</p></div>', unsafe_allow_html=True)
+
+    with col2:
+        st.markdown('<div class="glass-card"><h3>🎯 Operational Validation Metrics</h3><p>Calibration metrics and coverage statistics will be computed based on the filtered selection.</p></div>', unsafe_allow_html=True)
